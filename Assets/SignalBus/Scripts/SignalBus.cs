@@ -22,6 +22,15 @@ namespace AngryKoala.Signals
         {
             Instance.UnsubscribeInternal(typeof(TSignal), callback);
         }
+        
+        /// <summary>
+        /// Remove all callbacks whose target equals the given object.
+        /// Use in OnDisable/OnDestroy to wipe all of a component's handlers without tracking each subscription.
+        /// </summary>
+        public static void UnsubscribeAll(object target)
+        {
+            Instance.UnsubscribeAllInternal(target);
+        }
 
         public static void Publish<TSignal>(TSignal signal) where TSignal : ISignal
         {
@@ -65,6 +74,30 @@ namespace AngryKoala.Signals
             if (subscriberCollection.Count == 0)
             {
                 _subscribers.Remove(type);
+            }
+        }
+        
+        private void UnsubscribeAllInternal(object target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            var emptyTypes = new List<Type>();
+
+            foreach (var keyValuePair in _subscribers)
+            {
+                keyValuePair.Value.RemoveAll(target);
+                if (keyValuePair.Value.Count == 0)
+                {
+                    emptyTypes.Add(keyValuePair.Key);
+                }
+            }
+
+            foreach (var emptyType in emptyTypes)
+            {
+                _subscribers.Remove(emptyType);
             }
         }
 
