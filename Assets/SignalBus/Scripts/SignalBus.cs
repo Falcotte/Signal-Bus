@@ -17,6 +17,24 @@ namespace AngryKoala.Signals
         {
             Instance.SubscribeInternal(callback);
         }
+        
+        public static void SubscribeOneShot<TSignal>(Action<TSignal> callback) where TSignal : ISignal
+        {
+            if (callback == null)
+            {
+                throw new ArgumentNullException(nameof(callback));
+            }
+
+            Action<TSignal> wrapper = null;
+
+            wrapper = (signal) =>
+            {
+                Unsubscribe(wrapper);
+                callback(signal);
+            };
+
+            Subscribe(wrapper);
+        }
 
         public static void Unsubscribe<TSignal>(Action<TSignal> callback) where TSignal : ISignal
         {
