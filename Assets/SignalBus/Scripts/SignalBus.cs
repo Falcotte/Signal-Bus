@@ -31,6 +31,22 @@ namespace AngryKoala.Signals
         {
             Instance.UnsubscribeAllInternal(target);
         }
+        
+        /// <summary>
+        /// Remove all subscribers for a specific signal type.
+        /// </summary>
+        public static void Clear<TSignal>() where TSignal : ISignal
+        {
+            Instance.ClearInternal(typeof(TSignal));
+        }
+
+        /// <summary>
+        /// Remove all subscribers of all signal types.
+        /// </summary>
+        public static void ClearAll()
+        {
+            Instance.ClearAllInternal();
+        }
 
         public static void Publish<TSignal>(TSignal signal) where TSignal : ISignal
         {
@@ -99,6 +115,16 @@ namespace AngryKoala.Signals
             {
                 _subscribers.Remove(emptyType);
             }
+        }
+        
+        private void ClearInternal(Type type)
+        {
+            _subscribers.Remove(type);
+        }
+
+        private void ClearAllInternal()
+        {
+            _subscribers.Clear();
         }
 
         private void PublishInternal<TSignal>(TSignal signal) where TSignal : ISignal
