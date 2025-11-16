@@ -15,9 +15,9 @@ namespace AngryKoala.Signals
             _callbacks.Add(callback);
         }
 
-        public void Remove(Delegate del)
+        public void Remove(Delegate callback)
         {
-            _callbacks.Remove((Action<TSignal>)del);
+            _callbacks.Remove((Action<TSignal>)callback);
         }
 
         public void RemoveAll(object target)

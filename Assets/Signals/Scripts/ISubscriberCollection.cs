@@ -6,7 +6,7 @@ namespace AngryKoala.Signals
     {
         int Count { get; }
 
-        void Remove(Delegate del);
+        void Remove(Delegate callback);
 
         void RemoveAll(object target);
         

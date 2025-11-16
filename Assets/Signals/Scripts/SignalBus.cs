@@ -5,9 +5,9 @@ namespace AngryKoala.Signals
 {
     public sealed class SignalBus
     {
-        private readonly Dictionary<Type, ISubscriberCollection> _subscribers = new();
+        private readonly Dictionary<Type, ISubscriberCollection> _subscribersByType = new();
 
-        private static readonly SignalBus Instance = new();
+        private static readonly SignalBus _instance = new();
 
         private SignalBus()
         {
@@ -15,7 +15,7 @@ namespace AngryKoala.Signals
 
         public static void Subscribe<TSignal>(Action<TSignal> callback) where TSignal : ISignal
         {
-            Instance.SubscribeInternal(callback);
+            _instance.SubscribeInternal(callback);
         }
         
         public static void SubscribeOneShot<TSignal>(Action<TSignal> callback) where TSignal : ISignal
@@ -38,7 +38,7 @@ namespace AngryKoala.Signals
 
         public static void Unsubscribe<TSignal>(Action<TSignal> callback) where TSignal : ISignal
         {
-            Instance.UnsubscribeInternal(typeof(TSignal), callback);
+            _instance.UnsubscribeInternal(typeof(TSignal), callback);
         }
         
         /// <summary>
@@ -47,7 +47,7 @@ namespace AngryKoala.Signals
         /// </summary>
         public static void UnsubscribeAll(object target)
         {
-            Instance.UnsubscribeAllInternal(target);
+            _instance.UnsubscribeAllInternal(target);
         }
         
         /// <summary>
@@ -55,7 +55,7 @@ namespace AngryKoala.Signals
         /// </summary>
         public static void Clear<TSignal>() where TSignal : ISignal
         {
-            Instance.ClearInternal(typeof(TSignal));
+            _instance.ClearInternal(typeof(TSignal));
         }
 
         /// <summary>
@@ -63,12 +63,12 @@ namespace AngryKoala.Signals
         /// </summary>
         public static void ClearAll()
         {
-            Instance.ClearAllInternal();
+            _instance.ClearAllInternal();
         }
 
         public static void Publish<TSignal>(TSignal signal) where TSignal : ISignal
         {
-            Instance.PublishInternal(signal);
+            _instance.PublishInternal(signal);
         }
 
         #region Internal Methods
@@ -82,10 +82,10 @@ namespace AngryKoala.Signals
 
             var type = typeof(TSignal);
 
-            if (!_subscribers.TryGetValue(type, out var subscriberCollection))
+            if (!_subscribersByType.TryGetValue(type, out var subscriberCollection))
             {
                 subscriberCollection = new SubscriberCollection<TSignal>();
-                _subscribers[type] = subscriberCollection;
+                _subscribersByType[type] = subscriberCollection;
             }
 
             ((SubscriberCollection<TSignal>)subscriberCollection).Add(callback);
@@ -98,7 +98,7 @@ namespace AngryKoala.Signals
                 return;
             }
 
-            if (!_subscribers.TryGetValue(type, out var subscriberCollection))
+            if (!_subscribersByType.TryGetValue(type, out var subscriberCollection))
             {
                 return;
             }
@@ -107,7 +107,7 @@ namespace AngryKoala.Signals
 
             if (subscriberCollection.Count == 0)
             {
-                _subscribers.Remove(type);
+                _subscribersByType.Remove(type);
             }
         }
         
@@ -120,7 +120,7 @@ namespace AngryKoala.Signals
 
             var emptyTypes = new List<Type>();
 
-            foreach (var keyValuePair in _subscribers)
+            foreach (var keyValuePair in _subscribersByType)
             {
                 keyValuePair.Value.RemoveAll(target);
                 if (keyValuePair.Value.Count == 0)
@@ -131,23 +131,23 @@ namespace AngryKoala.Signals
 
             foreach (var emptyType in emptyTypes)
             {
-                _subscribers.Remove(emptyType);
+                _subscribersByType.Remove(emptyType);
             }
         }
         
         private void ClearInternal(Type type)
         {
-            _subscribers.Remove(type);
+            _subscribersByType.Remove(type);
         }
 
         private void ClearAllInternal()
         {
-            _subscribers.Clear();
+            _subscribersByType.Clear();
         }
 
         private void PublishInternal<TSignal>(TSignal signal) where TSignal : ISignal
         {
-            if (!_subscribers.TryGetValue(typeof(TSignal), out var subscriberCollection))
+            if (!_subscribersByType.TryGetValue(typeof(TSignal), out var subscriberCollection))
             {
                 return;
             }

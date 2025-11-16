@@ -11,7 +11,7 @@ namespace AngryKoala.Signals
     public class SignalInspectorEditorWindow : EditorWindow
     {
         private object _busInstance;
-        private IDictionary _subscribers;
+        private IDictionary _subscribersByType;
 
         private bool _autoRefresh = true;
         private double _nextRefreshTime;
@@ -48,15 +48,15 @@ namespace AngryKoala.Signals
         private List<Type> _allSignalTypes = new();
         private List<Type> _activeSignalTypes = new();
 
-        private const double AutoRefreshInterval = 0.5;
+        private const double _autoRefreshInterval = 0.5;
 
-        private const string ShowActiveEditorPrefKey = "SignalBusViewer.ShowActive";
-        private const string ShowAllEditorPrefKey = "SignalBusViewer.ShowAll";
-        private const string GroupActivePrefixEditorPrefKey = "SignalBusViewer.Group.Active.";
-        private const string GroupAllPrefixEditorPrefKey = "SignalBusViewer.Group.All.";
+        private const string _showActiveEditorPrefKey = "SignalBusViewer.ShowActive";
+        private const string _showAllEditorPrefKey = "SignalBusViewer.ShowAll";
+        private const string _groupActivePrefixEditorPrefKey = "SignalBusViewer.Group.Active.";
+        private const string _groupAllPrefixEditorPrefKey = "SignalBusViewer.Group.All.";
 
-        private const double PingFlashDuration = 0.5;
-        private const float PingFlashAmount = 0.3f;
+        private const double _pingFlashDuration = 0.5;
+        private const float _pingFlashAmount = 0.3f;
 
         private static GUIStyle _headerStyle;
         private static GUIStyle _headerLabelStyle;
@@ -68,7 +68,7 @@ namespace AngryKoala.Signals
             RefreshReflection();
             RebuildSignalTypeCaches();
 
-            _nextRefreshTime = EditorApplication.timeSinceStartup + AutoRefreshInterval;
+            _nextRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
         }
 
         private void OnDisable()
@@ -87,8 +87,8 @@ namespace AngryKoala.Signals
 
         private void LoadEditorPrefs()
         {
-            _showActiveList = EditorPrefs.GetBool(ShowActiveEditorPrefKey, true);
-            _showAllList = EditorPrefs.GetBool(ShowAllEditorPrefKey, true);
+            _showActiveList = EditorPrefs.GetBool(_showActiveEditorPrefKey, true);
+            _showAllList = EditorPrefs.GetBool(_showAllEditorPrefKey, true);
         }
 
         private void RefreshReflection()
@@ -96,19 +96,21 @@ namespace AngryKoala.Signals
             try
             {
                 Type busType = typeof(SignalBus);
-                FieldInfo instanceField = busType.GetField("Instance", BindingFlags.NonPublic | BindingFlags.Static);
+                FieldInfo instanceField = busType.GetField("_instance", BindingFlags.NonPublic | BindingFlags.Static);
                 _busInstance = instanceField != null ? instanceField.GetValue(null) : null;
 
-                FieldInfo subscribersField =
-                    busType.GetField("_subscribers", BindingFlags.NonPublic | BindingFlags.Instance);
-                _subscribers = subscribersField != null ? subscribersField.GetValue(_busInstance) as IDictionary : null;
+                FieldInfo subscribersByTypeField =
+                    busType.GetField("_subscribersByType", BindingFlags.NonPublic | BindingFlags.Instance);
+                _subscribersByType = subscribersByTypeField != null
+                    ? subscribersByTypeField.GetValue(_busInstance) as IDictionary
+                    : null;
 
                 _activeSignalTypes = GetActiveSignalTypes();
             }
             catch
             {
                 _busInstance = null;
-                _subscribers = null;
+                _subscribersByType = null;
                 _activeSignalTypes = new List<Type>();
             }
         }
@@ -117,12 +119,12 @@ namespace AngryKoala.Signals
         {
             List<Type> list = new List<Type>();
 
-            if (_subscribers == null)
+            if (_subscribersByType == null)
             {
                 return list;
             }
 
-            foreach (DictionaryEntry dictionaryEntry in _subscribers)
+            foreach (DictionaryEntry dictionaryEntry in _subscribersByType)
             {
                 if (dictionaryEntry.Key is Type type)
                 {
@@ -285,8 +287,8 @@ namespace AngryKoala.Signals
 
         private void SaveEditorPrefs()
         {
-            EditorPrefs.SetBool(ShowActiveEditorPrefKey, _showActiveList);
-            EditorPrefs.SetBool(ShowAllEditorPrefKey, _showAllList);
+            EditorPrefs.SetBool(_showActiveEditorPrefKey, _showActiveList);
+            EditorPrefs.SetBool(_showAllEditorPrefKey, _showAllList);
         }
 
         private void Update()
@@ -300,7 +302,7 @@ namespace AngryKoala.Signals
             RebuildSignalTypeCaches(activeOnly: true);
             Repaint();
 
-            _nextRefreshTime = EditorApplication.timeSinceStartup + AutoRefreshInterval;
+            _nextRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
         }
 
         private void OnGUI()
@@ -556,7 +558,7 @@ namespace AngryKoala.Signals
 
         private void SetGroupFoldoutState(bool isActiveList, string groupKey, bool expanded)
         {
-            string prefKey = (isActiveList ? GroupActivePrefixEditorPrefKey : GroupAllPrefixEditorPrefKey) +
+            string prefKey = (isActiveList ? _groupActivePrefixEditorPrefKey : _groupAllPrefixEditorPrefKey) +
                              SanitizeEditorPrefGroupKey(groupKey);
 
             EditorPrefs.SetBool(prefKey, expanded);
@@ -564,7 +566,7 @@ namespace AngryKoala.Signals
 
         private bool GetGroupFoldoutState(bool isActiveList, string groupKey)
         {
-            string prefKey = (isActiveList ? GroupActivePrefixEditorPrefKey : GroupAllPrefixEditorPrefKey) +
+            string prefKey = (isActiveList ? _groupActivePrefixEditorPrefKey : _groupAllPrefixEditorPrefKey) +
                              SanitizeEditorPrefGroupKey(groupKey);
 
             return EditorPrefs.GetBool(prefKey, true);
@@ -723,7 +725,7 @@ namespace AngryKoala.Signals
                                     }
 
                                     _pendingPingType = selectedSignalType;
-                                    _pingFlashEndTime = EditorApplication.timeSinceStartup + PingFlashDuration;
+                                    _pingFlashEndTime = EditorApplication.timeSinceStartup + _pingFlashDuration;
                                     _pendingScrollTargetHeight = null;
 
                                     Repaint();
@@ -1055,7 +1057,7 @@ namespace AngryKoala.Signals
                             : currentValue;
                         break;
                     }
-                    
+
                     try
                     {
                         newValue = ConvertFromString(type, editedText, currentValue);
@@ -1068,7 +1070,7 @@ namespace AngryKoala.Signals
                     break;
                 }
             }
-            
+
             return EditorGUI.EndChangeCheck();
         }
 
@@ -1205,20 +1207,20 @@ namespace AngryKoala.Signals
 
         private void DrawSubscribersPanelBodyScroll()
         {
-            if (_subscribers == null)
+            if (_subscribersByType == null)
             {
                 EditorGUILayout.HelpBox("Couldn’t access SignalBus._subscribers (domain reload or reflection failed).",
                     MessageType.Warning);
                 return;
             }
 
-            if (_subscribers.Count == 0)
+            if (_subscribersByType.Count == 0)
             {
                 EditorGUILayout.HelpBox("No active subscribers.", MessageType.Info);
                 return;
             }
 
-            foreach (DictionaryEntry dictionaryEntry in _subscribers)
+            foreach (DictionaryEntry dictionaryEntry in _subscribersByType)
             {
                 Type signalType = dictionaryEntry.Key as Type;
                 object collection = dictionaryEntry.Value;
@@ -1306,10 +1308,10 @@ namespace AngryKoala.Signals
                     {
                         Rect headerRect = GUILayoutUtility.GetLastRect();
 
-                        float life01 = Mathf.Clamp01((float)((_pingFlashEndTime - now) / PingFlashDuration));
+                        float life01 = Mathf.Clamp01((float)((_pingFlashEndTime - now) / _pingFlashDuration));
                         float phase01 = 1f - life01;
 
-                        float alpha = PingFlashAmount * Mathf.Sin(phase01 * Mathf.PI);
+                        float alpha = _pingFlashAmount * Mathf.Sin(phase01 * Mathf.PI);
 
                         if (alpha > 0f)
                         {
