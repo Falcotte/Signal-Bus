@@ -150,7 +150,7 @@ You can view all active signals, inspect subscribers, and even **publish signals
 
 You can extend the bus by:
 
-* Implementing custom editors that use reflection over `_subscribers`.
+* Implementing custom editors that use reflection over `_subscribersByType`.
 
 * Building higher-level abstractions like domain events, gameplay messages, or animation triggers.
 
