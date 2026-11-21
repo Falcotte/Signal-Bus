@@ -1286,7 +1286,7 @@ namespace AngryKoala.Signals
 
                     if (rows.Count == 0)
                     {
-                        EditorGUILayout.HelpBox("No readable callbacks (empty or reflection failed).",
+                        EditorGUILayout.HelpBox("No subscribers.",
                             MessageType.None);
                     }
                     else

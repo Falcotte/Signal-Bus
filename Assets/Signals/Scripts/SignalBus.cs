@@ -53,7 +53,7 @@ namespace AngryKoala.Signals
 
             if (collection.Add(callback, isOneShot: false) && collection.TryGetRetained(out TSignal signal))
             {
-                callback.Invoke(signal);
+                collection.Invoke(callback, signal);
             }
         }
 
@@ -71,7 +71,8 @@ namespace AngryKoala.Signals
         }
 
         /// <summary>
-        /// Removes every subscription whose handler belongs to the given object, across all signal types.
+        /// Removes every subscription whose handler belongs to the given object, across all signal types. Subscribe
+        /// with a method of the object: a lambda that captures a local belongs to a hidden object and is not found.
         /// </summary>
         public static void UnsubscribeAll(object target)
         {
@@ -97,7 +98,8 @@ namespace AngryKoala.Signals
         /// <summary>
         /// Publishes the signal and keeps it as the current one of its type, for later
         /// <see cref="SubscribeWithRetained{TSignal}"/> and <see cref="TryGetRetained{TSignal}"/> calls. Only for
-        /// signals that say what is true now.
+        /// signals that say what is true now. The signal is held until <see cref="ClearRetained{TSignal}"/>,
+        /// <see cref="ClearAll"/> or the next Play session, together with anything it references.
         /// </summary>
         public static void PublishRetained<TSignal>(TSignal signal) where TSignal : ISignal
         {

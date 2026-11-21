@@ -4,6 +4,8 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.TestTools.Constraints;
+using Is = UnityEngine.TestTools.Constraints.Is;
 
 namespace AngryKoala.Signals.Tests
 {
@@ -65,6 +67,20 @@ namespace AngryKoala.Signals.Tests
             Assert.That(destroyedSubscriber.CallCount, Is.Zero);
             Assert.That(subscriber.CallCount, Is.EqualTo(2));
             LogAssert.NoUnexpectedReceived();
+        }
+
+        [UnityTest]
+        public IEnumerator Publish_DoesNotAllocate_WithComponentSubscriber()
+        {
+            var signal = new PlayModeTestSignal();
+            PlayModeTestSubscriber subscriber = Create();
+            subscriber.Subscribe();
+
+            yield return null;
+            SignalBus.Publish(signal);
+
+            Assert.That(() => SignalBus.Publish(signal), Is.Not.AllocatingGCMemory());
+            Assert.That(subscriber.CallCount, Is.EqualTo(2));
         }
 
         private PlayModeTestSubscriber Create()

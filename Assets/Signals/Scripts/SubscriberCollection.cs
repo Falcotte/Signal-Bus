@@ -106,14 +106,7 @@ namespace AngryKoala.Signals
                         RemoveAt(i);
                     }
 
-                    try
-                    {
-                        callback.Invoke(signal);
-                    }
-                    catch (Exception exception)
-                    {
-                        LogSubscriberException(callback, exception);
-                    }
+                    Invoke(callback, signal);
                 }
             }
             finally
@@ -125,6 +118,18 @@ namespace AngryKoala.Signals
                     _subscriptions.RemoveAll(_isRemoved);
                     _hasRemovedSubscriptions = false;
                 }
+            }
+        }
+
+        public void Invoke(Action<TSignal> callback, TSignal signal)
+        {
+            try
+            {
+                callback.Invoke(signal);
+            }
+            catch (Exception exception)
+            {
+                LogSubscriberException(callback, exception);
             }
         }
 

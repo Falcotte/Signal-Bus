@@ -33,6 +33,11 @@ namespace AngryKoala.Signals.Tests
             {
                 CallCount++;
             }
+
+            public void HandleOtherSignal(OtherTestSignal signal)
+            {
+                CallCount++;
+            }
         }
 
         private int _callCount;
@@ -62,14 +67,6 @@ namespace AngryKoala.Signals.Tests
 
             Assert.That(_callCount, Is.EqualTo(1));
             Assert.That(_lastValue, Is.EqualTo(7));
-        }
-
-        [Test]
-        public void Publish_DoesNothing_WhenNobodySubscribed()
-        {
-            SignalBus.Publish(new TestSignal(1));
-
-            LogAssert.NoUnexpectedReceived();
         }
 
         [Test]
@@ -397,8 +394,12 @@ namespace AngryKoala.Signals.Tests
             SignalBus.ResetStatics();
             SignalBus.Publish(new TestSignal(6));
 
+            var collections = new List<ISubscriberCollection>();
+            SignalBus.GetCollections(collections);
+
             Assert.That(SignalBus.TryGetRetained(out TestSignal _), Is.False);
             Assert.That(_callCount, Is.EqualTo(1));
+            Assert.That(collections, Is.Empty);
         }
 
         [Test]
@@ -409,6 +410,181 @@ namespace AngryKoala.Signals.Tests
             SignalBus.PublishRetained(signal);
 
             Assert.That(() => SignalBus.PublishRetained(signal), Is.Not.AllocatingGCMemory());
+        }
+
+        [Test]
+        public void SubscribeWithRetained_LogsAndStaysSubscribed_WhenHandlerThrows()
+        {
+            int callCount = 0;
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            LogAssert.Expect(LogType.Error, new Regex(nameof(TestSignal)));
+            LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException"));
+            SignalBus.SubscribeWithRetained<TestSignal>(signal =>
+            {
+                callCount++;
+
+                if (signal.Value == 5)
+                {
+                    throw new InvalidOperationException("Test");
+                }
+            });
+
+            SignalBus.Publish(new TestSignal(6));
+
+            Assert.That(callCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void SubscribeWithRetained_DoesNotCallBack_WhenHandlerIsAlreadySubscribed()
+        {
+            SignalBus.PublishRetained(new TestSignal(5));
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+
+            LogAssert.Expect(LogType.Warning, new Regex("already subscribed"));
+            SignalBus.SubscribeWithRetained<TestSignal>(HandleSignal);
+
+            Assert.That(_callCount, Is.Zero);
+        }
+
+        [Test]
+        public void UnsubscribeAll_RemovesHandlersOfEverySignalType_InsideHandler()
+        {
+            var subscriber = new Subscriber();
+            int otherCallCount = 0;
+            Action<OtherTestSignal> otherHandler = _ => otherCallCount++;
+
+            SignalBus.Subscribe<TestSignal>(_ => SignalBus.UnsubscribeAll(subscriber));
+            SignalBus.Subscribe<TestSignal>(subscriber.HandleSignal);
+            SignalBus.Subscribe<OtherTestSignal>(subscriber.HandleOtherSignal);
+            SignalBus.Subscribe(otherHandler);
+
+            SignalBus.Publish(new TestSignal(1));
+            SignalBus.Publish(new OtherTestSignal());
+
+            Assert.That(subscriber.CallCount, Is.Zero);
+            Assert.That(otherCallCount, Is.EqualTo(1));
+            Assert.That(GetSubscriberCount<TestSignal>(), Is.EqualTo(1));
+            Assert.That(GetSubscriberCount<OtherTestSignal>(), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void UnsubscribeAll_DoesNotFindLambdaThatCapturesLocal()
+        {
+            var subscriber = new Subscriber();
+            SignalBus.Subscribe<TestSignal>(signal => subscriber.HandleSignal(signal));
+
+            SignalBus.UnsubscribeAll(subscriber);
+            SignalBus.Publish(new TestSignal(1));
+
+            Assert.That(subscriber.CallCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ClearAll_StopsRemainingSubscribers_InsideHandler()
+        {
+            SignalBus.Subscribe<TestSignal>(_ => SignalBus.ClearAll());
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+
+            SignalBus.Publish(new TestSignal(1));
+
+            Assert.That(_callCount, Is.Zero);
+            Assert.That(GetSubscriberCount<TestSignal>(), Is.Zero);
+        }
+
+        [Test]
+        public void SubscribeOneShot_IsNotCalled_WhenRemovedByEarlierHandler()
+        {
+            SignalBus.Subscribe<TestSignal>(_ => SignalBus.Unsubscribe<TestSignal>(HandleSignal));
+            SignalBus.SubscribeOneShot<TestSignal>(HandleSignal);
+
+            SignalBus.Publish(new TestSignal(1));
+            SignalBus.Publish(new TestSignal(2));
+
+            Assert.That(_callCount, Is.Zero);
+            Assert.That(GetSubscriberCount<TestSignal>(), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Publish_KeepsCountRight_WhenHandlerSubscribesAndUnsubscribesInOnePublish()
+        {
+            SignalBus.Subscribe<TestSignal>(_ =>
+            {
+                SignalBus.Subscribe<TestSignal>(HandleSignal);
+                SignalBus.Unsubscribe<TestSignal>(HandleSignal);
+            });
+
+            SignalBus.Publish(new TestSignal(1));
+            SignalBus.Publish(new TestSignal(2));
+
+            Assert.That(_callCount, Is.Zero);
+            Assert.That(GetSubscriberCount<TestSignal>(), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Publish_SupportsNestedPublishWithRemoval()
+        {
+            var subscriber = new Subscriber();
+            var values = new List<int>();
+
+            SignalBus.Subscribe<TestSignal>(signal =>
+            {
+                values.Add(signal.Value);
+
+                if (signal.Value == 1)
+                {
+                    SignalBus.Publish(new OtherTestSignal());
+                    SignalBus.Publish(new TestSignal(2));
+                }
+            });
+            SignalBus.Subscribe<OtherTestSignal>(_ => SignalBus.Unsubscribe<TestSignal>(subscriber.HandleSignal));
+            SignalBus.Subscribe<TestSignal>(subscriber.HandleSignal);
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+
+            SignalBus.Publish(new TestSignal(1));
+
+            Assert.That(values, Is.EqualTo(new[] { 1, 2 }));
+            Assert.That(subscriber.CallCount, Is.Zero);
+            Assert.That(_callCount, Is.EqualTo(2));
+            Assert.That(GetSubscriberCount<TestSignal>(), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Publish_DoesNotAllocate_WithOneShotAndRemovalDuringPublish()
+        {
+            var signal = new TestSignal(1);
+            var subscriber = new Subscriber();
+            Action<TestSignal> removedHandler = subscriber.HandleSignal;
+            Action<TestSignal> removingHandler = _ => SignalBus.Unsubscribe(removedHandler);
+
+            SignalBus.Subscribe(removingHandler);
+            SignalBus.Subscribe(removedHandler);
+            SignalBus.SubscribeOneShot<TestSignal>(HandleSignal);
+            SignalBus.Publish(signal);
+
+            SignalBus.Subscribe(removedHandler);
+            SignalBus.SubscribeOneShot<TestSignal>(HandleSignal);
+
+            Assert.That(() => SignalBus.Publish(signal), Is.Not.AllocatingGCMemory());
+            Assert.That(subscriber.CallCount, Is.Zero);
+            Assert.That(_callCount, Is.EqualTo(2));
+            Assert.That(GetSubscriberCount<TestSignal>(), Is.EqualTo(1));
+        }
+
+        private static int GetSubscriberCount<TSignal>() where TSignal : ISignal
+        {
+            var collections = new List<ISubscriberCollection>();
+            SignalBus.GetCollections(collections);
+
+            foreach (ISubscriberCollection collection in collections)
+            {
+                if (collection.SignalType == typeof(TSignal))
+                {
+                    return collection.Count;
+                }
+            }
+
+            return 0;
         }
 
         private void HandleSignal(TestSignal signal)
