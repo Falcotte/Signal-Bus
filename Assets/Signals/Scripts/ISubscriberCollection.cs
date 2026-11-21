@@ -1,15 +1,22 @@
 using System;
+using System.Collections.Generic;
 
 namespace AngryKoala.Signals
 {
-    public interface ISubscriberCollection
+    internal interface ISubscriberCollection
     {
+        Type SignalType { get; }
+
         int Count { get; }
 
-        void Remove(Delegate callback);
+        bool HasRetainedSignal { get; }
 
         void RemoveAll(object target);
-        
-        void Publish(object signal);
+
+        void Clear();
+
+        void ClearRetained();
+
+        void GetCallbacks(List<Delegate> results);
     }
 }

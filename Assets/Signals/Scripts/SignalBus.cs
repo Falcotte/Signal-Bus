@@ -1,23 +1,33 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace AngryKoala.Signals
 {
-    public sealed class SignalBus
+    public static class SignalBus
     {
-        private readonly Dictionary<Type, ISubscriberCollection> _subscribersByType = new();
+        private static readonly Dictionary<Type, ISubscriberCollection> _collectionsByType = new();
 
-        private static readonly SignalBus _instance = new();
-
-        private SignalBus()
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        internal static void ResetStatics()
         {
+            ClearAll();
+            _collectionsByType.Clear();
         }
 
         public static void Subscribe<TSignal>(Action<TSignal> callback) where TSignal : ISignal
         {
-            _instance.SubscribeInternal(callback);
+            if (callback == null)
+            {
+                throw new ArgumentNullException(nameof(callback));
+            }
+
+            GetOrCreateCollection<TSignal>().Add(callback, isOneShot: false);
         }
-        
+
+        /// <summary>
+        /// Subscribes for one publish only. The subscription can be removed like any other before it is called.
+        /// </summary>
         public static void SubscribeOneShot<TSignal>(Action<TSignal> callback) where TSignal : ISignal
         {
             if (callback == null)
@@ -25,136 +35,150 @@ namespace AngryKoala.Signals
                 throw new ArgumentNullException(nameof(callback));
             }
 
-            Action<TSignal> wrapper = null;
-
-            wrapper = (signal) =>
-            {
-                Unsubscribe(wrapper);
-                callback(signal);
-            };
-
-            Subscribe(wrapper);
-        }
-
-        public static void Unsubscribe<TSignal>(Action<TSignal> callback) where TSignal : ISignal
-        {
-            _instance.UnsubscribeInternal(typeof(TSignal), callback);
-        }
-        
-        /// <summary>
-        /// Remove all callbacks whose target equals the given object.
-        /// Use in OnDisable/OnDestroy to wipe all of a component's handlers without tracking each subscription.
-        /// </summary>
-        public static void UnsubscribeAll(object target)
-        {
-            _instance.UnsubscribeAllInternal(target);
-        }
-        
-        /// <summary>
-        /// Remove all subscribers for a specific signal type.
-        /// </summary>
-        public static void Clear<TSignal>() where TSignal : ISignal
-        {
-            _instance.ClearInternal(typeof(TSignal));
+            GetOrCreateCollection<TSignal>().Add(callback, isOneShot: true);
         }
 
         /// <summary>
-        /// Remove all subscribers of all signal types.
+        /// Subscribes and, when a signal of this type was published with <see cref="PublishRetained{TSignal}"/>,
+        /// calls back with it at once.
         /// </summary>
-        public static void ClearAll()
-        {
-            _instance.ClearAllInternal();
-        }
-
-        public static void Publish<TSignal>(TSignal signal) where TSignal : ISignal
-        {
-            _instance.PublishInternal(signal);
-        }
-
-        #region Internal Methods
-
-        private void SubscribeInternal<TSignal>(Action<TSignal> callback) where TSignal : ISignal
+        public static void SubscribeWithRetained<TSignal>(Action<TSignal> callback) where TSignal : ISignal
         {
             if (callback == null)
             {
                 throw new ArgumentNullException(nameof(callback));
             }
 
-            var type = typeof(TSignal);
+            SubscriberCollection<TSignal> collection = GetOrCreateCollection<TSignal>();
 
-            if (!_subscribersByType.TryGetValue(type, out var subscriberCollection))
+            if (collection.Add(callback, isOneShot: false) && collection.TryGetRetained(out TSignal signal))
             {
-                subscriberCollection = new SubscriberCollection<TSignal>();
-                _subscribersByType[type] = subscriberCollection;
+                callback.Invoke(signal);
             }
-
-            ((SubscriberCollection<TSignal>)subscriberCollection).Add(callback);
         }
 
-        private void UnsubscribeInternal(Type type, Delegate callback)
+        public static void Unsubscribe<TSignal>(Action<TSignal> callback) where TSignal : ISignal
         {
-            if (type == null || callback == null)
+            if (callback == null)
             {
                 return;
             }
 
-            if (!_subscribersByType.TryGetValue(type, out var subscriberCollection))
+            if (TryGetCollection(out SubscriberCollection<TSignal> collection))
             {
-                return;
-            }
-
-            subscriberCollection.Remove(callback);
-
-            if (subscriberCollection.Count == 0)
-            {
-                _subscribersByType.Remove(type);
+                collection.Remove(callback);
             }
         }
-        
-        private void UnsubscribeAllInternal(object target)
+
+        /// <summary>
+        /// Removes every subscription whose handler belongs to the given object, across all signal types.
+        /// </summary>
+        public static void UnsubscribeAll(object target)
         {
             if (target == null)
             {
                 return;
             }
 
-            var emptyTypes = new List<Type>();
-
-            foreach (var keyValuePair in _subscribersByType)
+            foreach (ISubscriberCollection collection in _collectionsByType.Values)
             {
-                keyValuePair.Value.RemoveAll(target);
-                if (keyValuePair.Value.Count == 0)
-                {
-                    emptyTypes.Add(keyValuePair.Key);
-                }
-            }
-
-            foreach (var emptyType in emptyTypes)
-            {
-                _subscribersByType.Remove(emptyType);
+                collection.RemoveAll(target);
             }
         }
-        
-        private void ClearInternal(Type type)
-        {
-            _subscribersByType.Remove(type);
-        }
 
-        private void ClearAllInternal()
+        public static void Publish<TSignal>(TSignal signal) where TSignal : ISignal
         {
-            _subscribersByType.Clear();
-        }
-
-        private void PublishInternal<TSignal>(TSignal signal) where TSignal : ISignal
-        {
-            if (!_subscribersByType.TryGetValue(typeof(TSignal), out var subscriberCollection))
+            if (TryGetCollection(out SubscriberCollection<TSignal> collection))
             {
-                return;
+                collection.Publish(signal);
+            }
+        }
+
+        /// <summary>
+        /// Publishes the signal and keeps it as the current one of its type, for later
+        /// <see cref="SubscribeWithRetained{TSignal}"/> and <see cref="TryGetRetained{TSignal}"/> calls. Only for
+        /// signals that say what is true now.
+        /// </summary>
+        public static void PublishRetained<TSignal>(TSignal signal) where TSignal : ISignal
+        {
+            SubscriberCollection<TSignal> collection = GetOrCreateCollection<TSignal>();
+
+            collection.SetRetained(signal);
+            collection.Publish(signal);
+        }
+
+        public static bool TryGetRetained<TSignal>(out TSignal signal) where TSignal : ISignal
+        {
+            if (TryGetCollection(out SubscriberCollection<TSignal> collection))
+            {
+                return collection.TryGetRetained(out signal);
             }
 
-            subscriberCollection.Publish(signal);
+            signal = default;
+            return false;
         }
 
-        #endregion
+        public static void ClearRetained<TSignal>() where TSignal : ISignal
+        {
+            if (TryGetCollection(out SubscriberCollection<TSignal> collection))
+            {
+                collection.ClearRetained();
+            }
+        }
+
+        /// <summary>
+        /// Removes every subscriber of one signal type. A retained signal of that type is kept.
+        /// </summary>
+        public static void Clear<TSignal>() where TSignal : ISignal
+        {
+            if (TryGetCollection(out SubscriberCollection<TSignal> collection))
+            {
+                collection.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Removes every subscriber and every retained signal.
+        /// </summary>
+        public static void ClearAll()
+        {
+            foreach (ISubscriberCollection collection in _collectionsByType.Values)
+            {
+                collection.Clear();
+                collection.ClearRetained();
+            }
+        }
+
+        internal static void GetCollections(List<ISubscriberCollection> results)
+        {
+            results.Clear();
+            results.AddRange(_collectionsByType.Values);
+        }
+
+        private static SubscriberCollection<TSignal> GetOrCreateCollection<TSignal>() where TSignal : ISignal
+        {
+            if (TryGetCollection(out SubscriberCollection<TSignal> collection))
+            {
+                return collection;
+            }
+
+            collection = new SubscriberCollection<TSignal>();
+            _collectionsByType[typeof(TSignal)] = collection;
+
+            return collection;
+        }
+
+        private static bool TryGetCollection<TSignal>(out SubscriberCollection<TSignal> collection)
+            where TSignal : ISignal
+        {
+            if (_collectionsByType.TryGetValue(typeof(TSignal), out ISubscriberCollection registeredCollection))
+            {
+                collection = (SubscriberCollection<TSignal>)registeredCollection;
+                return true;
+            }
+
+            collection = null;
+            return false;
+        }
     }
 }

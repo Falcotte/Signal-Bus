@@ -270,6 +270,147 @@ namespace AngryKoala.Signals.Tests
             Assert.That(otherCallCount, Is.EqualTo(1));
         }
 
+        [Test]
+        public void PublishRetained_ReachesCurrentSubscribers()
+        {
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            Assert.That(_callCount, Is.EqualTo(1));
+            Assert.That(_lastValue, Is.EqualTo(5));
+        }
+
+        [Test]
+        public void SubscribeWithRetained_CallsBackAtOnce_WithLatestRetainedSignal()
+        {
+            SignalBus.PublishRetained(new TestSignal(5));
+            SignalBus.PublishRetained(new TestSignal(6));
+
+            SignalBus.SubscribeWithRetained<TestSignal>(HandleSignal);
+
+            Assert.That(_callCount, Is.EqualTo(1));
+            Assert.That(_lastValue, Is.EqualTo(6));
+        }
+
+        [Test]
+        public void SubscribeWithRetained_StaysSubscribed()
+        {
+            SignalBus.PublishRetained(new TestSignal(5));
+            SignalBus.SubscribeWithRetained<TestSignal>(HandleSignal);
+
+            SignalBus.Publish(new TestSignal(8));
+
+            Assert.That(_callCount, Is.EqualTo(2));
+            Assert.That(_lastValue, Is.EqualTo(8));
+        }
+
+        [Test]
+        public void SubscribeWithRetained_DoesNotCallBack_WhenNothingIsRetained()
+        {
+            SignalBus.Publish(new TestSignal(5));
+
+            SignalBus.SubscribeWithRetained<TestSignal>(HandleSignal);
+
+            Assert.That(_callCount, Is.Zero);
+        }
+
+        [Test]
+        public void Subscribe_DoesNotReceiveRetainedSignal()
+        {
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+
+            Assert.That(_callCount, Is.Zero);
+        }
+
+        [Test]
+        public void TryGetRetained_ReturnsLatestRetainedSignal()
+        {
+            Assert.That(SignalBus.TryGetRetained(out TestSignal _), Is.False);
+
+            SignalBus.PublishRetained(new TestSignal(5));
+            SignalBus.Publish(new TestSignal(9));
+
+            Assert.That(SignalBus.TryGetRetained(out TestSignal signal), Is.True);
+            Assert.That(signal.Value, Is.EqualTo(5));
+        }
+
+        [Test]
+        public void TryGetRetained_SeesNewSignal_InsideItsOwnHandlers()
+        {
+            int retainedValue = 0;
+            SignalBus.Subscribe<TestSignal>(_ =>
+            {
+                SignalBus.TryGetRetained(out TestSignal retainedSignal);
+                retainedValue = retainedSignal.Value;
+            });
+
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            Assert.That(retainedValue, Is.EqualTo(5));
+        }
+
+        [Test]
+        public void ClearRetained_ForgetsSignal_AndKeepsSubscribers()
+        {
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            SignalBus.ClearRetained<TestSignal>();
+            SignalBus.Publish(new TestSignal(6));
+
+            Assert.That(SignalBus.TryGetRetained(out TestSignal _), Is.False);
+            Assert.That(_callCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Clear_KeepsRetainedSignal()
+        {
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            SignalBus.Clear<TestSignal>();
+
+            Assert.That(SignalBus.TryGetRetained(out TestSignal _), Is.True);
+        }
+
+        [Test]
+        public void ClearAll_RemovesSubscribersAndRetainedSignals()
+        {
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            SignalBus.ClearAll();
+            SignalBus.Publish(new TestSignal(6));
+
+            Assert.That(SignalBus.TryGetRetained(out TestSignal _), Is.False);
+            Assert.That(_callCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ResetStatics_RemovesSubscribersAndRetainedSignals()
+        {
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+            SignalBus.PublishRetained(new TestSignal(5));
+
+            SignalBus.ResetStatics();
+            SignalBus.Publish(new TestSignal(6));
+
+            Assert.That(SignalBus.TryGetRetained(out TestSignal _), Is.False);
+            Assert.That(_callCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void PublishRetained_DoesNotAllocate()
+        {
+            var signal = new TestSignal(1);
+            SignalBus.Subscribe<TestSignal>(HandleSignal);
+            SignalBus.PublishRetained(signal);
+
+            Assert.That(() => SignalBus.PublishRetained(signal), Is.Not.AllocatingGCMemory());
+        }
+
         private void HandleSignal(TestSignal signal)
         {
             _callCount++;
