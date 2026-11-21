@@ -1,0 +1,10 @@
+{
+    "name": "com.angrykoala.signals",
+    "version": "2.0.0",
+    "displayName": "Angry Koala Signals",
+    "description": "A typed publish and subscribe bus for Unity: systems announce what happened as signals, without knowing who listens.",
+    "unity": "6000.3",
+    "author": {
+        "name": "Angry Koala"
+    }
+}

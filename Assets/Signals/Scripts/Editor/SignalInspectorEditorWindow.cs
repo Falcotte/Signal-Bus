@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -10,8 +9,8 @@ namespace AngryKoala.Signals
 {
     public class SignalInspectorEditorWindow : EditorWindow
     {
-        private object _busInstance;
-        private IDictionary _subscribersByType;
+        private readonly List<ISubscriberCollection> _collections = new();
+        private readonly List<Delegate> _callbacks = new();
 
         private bool _autoRefresh = true;
         private double _nextRefreshTime;
@@ -65,7 +64,7 @@ namespace AngryKoala.Signals
         private void OnEnable()
         {
             LoadEditorPrefs();
-            RefreshReflection();
+            RefreshCollections();
             RebuildSignalTypeCaches();
 
             _nextRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
@@ -91,45 +90,21 @@ namespace AngryKoala.Signals
             _showAllList = EditorPrefs.GetBool(_showAllEditorPrefKey, true);
         }
 
-        private void RefreshReflection()
+        private void RefreshCollections()
         {
-            try
-            {
-                Type busType = typeof(SignalBus);
-                FieldInfo instanceField = busType.GetField("_instance", BindingFlags.NonPublic | BindingFlags.Static);
-                _busInstance = instanceField != null ? instanceField.GetValue(null) : null;
+            SignalBus.GetCollections(_collections);
+            _collections.RemoveAll(collection => collection.Count == 0 && !collection.HasRetainedSignal);
 
-                FieldInfo subscribersByTypeField =
-                    busType.GetField("_subscribersByType", BindingFlags.NonPublic | BindingFlags.Instance);
-                _subscribersByType = subscribersByTypeField != null
-                    ? subscribersByTypeField.GetValue(_busInstance) as IDictionary
-                    : null;
-
-                _activeSignalTypes = GetActiveSignalTypes();
-            }
-            catch
-            {
-                _busInstance = null;
-                _subscribersByType = null;
-                _activeSignalTypes = new List<Type>();
-            }
+            _activeSignalTypes = GetActiveSignalTypes();
         }
 
         private List<Type> GetActiveSignalTypes()
         {
             List<Type> list = new List<Type>();
 
-            if (_subscribersByType == null)
+            foreach (ISubscriberCollection collection in _collections)
             {
-                return list;
-            }
-
-            foreach (DictionaryEntry dictionaryEntry in _subscribersByType)
-            {
-                if (dictionaryEntry.Key is Type type)
-                {
-                    list.Add(type);
-                }
+                list.Add(collection.SignalType);
             }
 
             list.Sort((a, b) => string.Compare(a.FullName, b.FullName, StringComparison.Ordinal));
@@ -298,7 +273,7 @@ namespace AngryKoala.Signals
                 return;
             }
 
-            RefreshReflection();
+            RefreshCollections();
             RebuildSignalTypeCaches(activeOnly: true);
             Repaint();
 
@@ -388,7 +363,7 @@ namespace AngryKoala.Signals
 
             if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(70)))
             {
-                RefreshReflection();
+                RefreshCollections();
                 RebuildSignalTypeCaches();
             }
 
@@ -1207,74 +1182,55 @@ namespace AngryKoala.Signals
 
         private void DrawSubscribersPanelBodyScroll()
         {
-            if (_subscribersByType == null)
-            {
-                EditorGUILayout.HelpBox("Couldn’t access SignalBus._subscribers (domain reload or reflection failed).",
-                    MessageType.Warning);
-                return;
-            }
-
-            if (_subscribersByType.Count == 0)
+            if (_collections.Count == 0)
             {
                 EditorGUILayout.HelpBox("No active subscribers.", MessageType.Info);
                 return;
             }
 
-            foreach (DictionaryEntry dictionaryEntry in _subscribersByType)
+            foreach (ISubscriberCollection collection in _collections)
             {
-                Type signalType = dictionaryEntry.Key as Type;
-                object collection = dictionaryEntry.Value;
+                Type signalType = collection.SignalType;
 
                 bool isPingTarget = (_pendingPingType != null && signalType == _pendingPingType);
 
-                string fullName = signalType?.FullName?.Replace('+', '.') ?? "(null)";
-                string shortName = signalType?.Name ?? "(null)";
+                string fullName = signalType.FullName?.Replace('+', '.') ?? "(null)";
+                string shortName = signalType.Name;
 
                 List<(string targetLabel, string methodLabel, UnityEngine.Object pingObj)> rows = new();
 
-                try
+                collection.GetCallbacks(_callbacks);
+
+                foreach (Delegate callback in _callbacks)
                 {
-                    FieldInfo callbacksField = collection.GetType()
-                        .GetField("_callbacks", BindingFlags.NonPublic | BindingFlags.Instance);
+                    MethodInfo method = callback.Method;
+                    object target = callback.Target;
 
-                    if (callbacksField?.GetValue(collection) is IEnumerable callbacksEnumerable)
+                    string targetLabel;
+                    UnityEngine.Object pingObject = null;
+
+                    if (target is UnityEngine.Object unityObject)
                     {
-                        foreach (object item in callbacksEnumerable)
+                        if (unityObject != null)
                         {
-                            Delegate del = item as Delegate;
-                            if (del == null)
-                            {
-                                rows.Add(("<unknown>", "<unknown>", null));
-                                continue;
-                            }
-
-                            MethodInfo method = del.Method;
-                            object target = del.Target;
-
-                            string targetLabel;
-                            UnityEngine.Object pingObject = null;
-
-                            if (target is UnityEngine.Object unityObject)
-                            {
-                                pingObject = unityObject;
-                                targetLabel = $"{unityObject.name} ({unityObject.GetType().Name})";
-                            }
-                            else if (target != null)
-                            {
-                                targetLabel = target.GetType().FullName?.Replace('+', '.') ?? "null";
-                            }
-                            else
-                            {
-                                targetLabel = method?.DeclaringType?.FullName?.Replace('+', '.') ?? "static";
-                            }
-
-                            string methodLabel = method != null ? method.Name : "<no method>";
-                            rows.Add((targetLabel, methodLabel, pingObject));
+                            pingObject = unityObject;
+                            targetLabel = $"{unityObject.name} ({unityObject.GetType().Name})";
+                        }
+                        else
+                        {
+                            targetLabel = $"<destroyed> ({unityObject.GetType().Name})";
                         }
                     }
-                }
-                catch
-                {
+                    else if (target != null)
+                    {
+                        targetLabel = target.GetType().FullName?.Replace('+', '.') ?? "null";
+                    }
+                    else
+                    {
+                        targetLabel = method.DeclaringType?.FullName?.Replace('+', '.') ?? "static";
+                    }
+
+                    rows.Add((targetLabel, method.Name, pingObject));
                 }
 
                 bool showThisSignal =
@@ -1323,26 +1279,14 @@ namespace AngryKoala.Signals
                         }
                     }
 
-                    int count = 0;
+                    int count = collection.Count;
 
-                    try
-                    {
-                        PropertyInfo propertyInfo = collection.GetType()
-                            .GetProperty("Count", BindingFlags.Public | BindingFlags.Instance);
-                        if (propertyInfo != null)
-                        {
-                            count = (int)propertyInfo.GetValue(collection);
-                        }
-                    }
-                    catch
-                    {
-                    }
-
+                    EditorGUILayout.LabelField("Retained signal", collection.HasRetainedSignal ? "Yes" : "No");
                     EditorGUILayout.LabelField("Subscribers", count.ToString());
 
                     if (rows.Count == 0)
                     {
-                        EditorGUILayout.HelpBox("No readable callbacks (empty or reflection failed).",
+                        EditorGUILayout.HelpBox("No subscribers.",
                             MessageType.None);
                     }
                     else
